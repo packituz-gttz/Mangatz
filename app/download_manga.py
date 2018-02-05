@@ -1,16 +1,17 @@
 import urllib
 from bs4 import BeautifulSoup
 import os
-from PyQt4.QtCore import (QThread, QDir, QMutex, QWaitCondition)
-from PyQt4.QtGui import (QMainWindow, QMessageBox, QImage, QPixmap)
+from PyQt4.QtCore import (QThread, QDir, QMutex, QWaitCondition, QSettings, QVariant, QFile)
+from PyQt4.QtGui import (QMainWindow, QMessageBox, QImage, QPixmap, QKeySequence, QDialog, QDialogButtonBox)
 import datetime
-from Gui import MangaDownloader
+from Gui import MangaDownloader, Dialog_Settings
 from PyQt4.QtCore import pyqtSignal as Signal
 import resource
 import tempfile
 import zipfile
 import re
 
+# Elements for waiting user confirmation for overriding file
 waitCondition = QWaitCondition()
 mutex = QMutex()
 
@@ -19,12 +20,40 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
         super(MainWindow, self).__init__(parent)
         self.setupUi(self)
         # self.mutex = QMutex()
-        self.setWindowTitle('Mangatz')
-        self.progressbar_download.setValue(0)
+        self.settings_dict = dict(recent=5, save_dir=QDir.homePath(), close_confirmation=True,
+                              display_image=True, list_recent=[])
         self.pushbutton_stop.setEnabled(False)
+        self.edit_url.setFocus()
         self.image = QImage()
         self.pushbutton_start.clicked.connect(self.startDownload)
+
+        self.action_Quit.setShortcut(QKeySequence.Quit)
+        self.action_Quit.triggered.connect(self.close)
+
+        self.actionPreferences.setShortcut(QKeySequence.Preferences)
+        self.actionPreferences.triggered.connect(self.open_preferences)
+        self.load_settings()
+
+        self.menu_Recent.aboutToShow.connect(self.load_recent_files)
+
         #self.setWindowIcon(QIcon(":/window_icon.png"))
+
+    def load_recent_files(self):
+        self.menu_Recent.clear()
+        recent_files = []
+        if not self.edit_url.text().isEmpty():
+            print "me"
+
+    def add_new_recent_file(self):
+        file_downloaded = ' '.join([unicode(self.series_title_label.text()), unicode(self.label_chapter.text())])
+
+        if not self.settings_dict['list_recent'].contains(file_downloaded):
+            print "dadasd2"
+            self.settings_dict['list_recent'].append(file_downloaded)
+        print type(self.settings_dict['list_recent'])
+        for data in self.settings_dict['list_recent']:
+            print data
+
 
     def startDownload(self):
         if not self.edit_url.text():
@@ -38,11 +67,28 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
             self.download_thread.page_init.connect(self.update_init_info)
             self.download_thread.error_terminate.connect(self.terminate_on_error)
             self.download_thread.override_confirmation.connect(self.override_check)
+            self.download_thread.success_on_terminate.connect(self.add_new_recent_file)
 
             self.pushbutton_stop.clicked.connect(self.download_thread.terminate)
             self.pushbutton_start.setEnabled(False)
             self.pushbutton_stop.setEnabled(True)
 
+    def open_preferences(self):
+        dialog = SettingsDialog(self.settings_dict, self)
+        dialog.exec_()
+
+    def load_settings(self):
+        settings = QSettings()
+        self.settings_dict['recent'] = settings.value('recent',
+                                                      self.settings_dict['recent']).toInt()[0]
+        self.settings_dict['save_dir'] = settings.value('save_dir',
+                                                        self.settings_dict['save_dir']).toString()
+        self.settings_dict['close_confirmation'] = settings.value('close_confirmation',
+                                                                  self.settings_dict['close_confirmation']).toBool()
+        self.settings_dict['display_image'] = settings.value('display_image',
+                                                             self.settings_dict['display_image']).toBool()
+        self.settings_dict['list_recent'] = settings.value('list_recent',
+                                                           self.settings_dict['list_recent']).toStringList()
 
     def update_progressbar(self, current_page, max_page):
         if max_page != self.progressbar_download.maximum():
@@ -53,7 +99,6 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
     def completed(self):
         self.pushbutton_start.setEnabled(True)
         self.pushbutton_stop.setEnabled(False)
-
 
     def update_init_info(self, image_location, title, chapter):
         self.series_title_label.setText(title)
@@ -66,6 +111,7 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
             self.label_image.setPixmap(QPixmap.fromImage(image))
 
     def terminate_on_error(self):
+        print "error"
         self.download_thread.terminate()
         self.pushbutton_start.setEnabled(False)
         self.pushbutton_stop.setEnabled(True)
@@ -76,10 +122,65 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
                                                    QMessageBox.Ok | QMessageBox.Cancel)
         waitCondition.wakeAll()
 
+    def closeEvent(self, QCloseEvent):
+        try:
+            if self.download_thread.isRunning():
+                result = QMessageBox.question(self, 'Close', 'Close Program?', QMessageBox.Ok | QMessageBox.Cancel)
+                if result == QMessageBox.Ok:
+                  pass
+                else:
+                    QCloseEvent.ignore()
+        except AttributeError:
+            pass
+        finally:
+            settings = QSettings()
+            settings.setValue('recent', QVariant(self.settings_dict['recent']))
+            settings.setValue('save_dir', QVariant(self.settings_dict['save_dir']))
+            settings.setValue('close_confirmation', QVariant(self.settings_dict['close_confirmation']))
+            settings.setValue('display_image', QVariant(self.settings_dict['display_image']))
+            settings.setValue('list_recent', QVariant(self.settings_dict['list_recent']))
+
+
+class SettingsDialog(QDialog, Dialog_Settings.Ui_Dialog):
+    def __init__(self, settings, parent=None):
+        super(SettingsDialog, self).__init__(parent)
+        self.setupUi(self)
+        self.settings = settings
+        self.set_values()
+        print settings
+
+    def set_values(self):
+        print self.settings
+        self.spinbox_downloads.setValue(self.settings['recent'])
+        self.lineedit_path.setText(self.settings['save_dir'])
+        self.checkbox_close.setChecked(self.settings['close_confirmation'])
+        self.checkbox_image.setChecked(self.settings['display_image'])
+        self.buttonBox.button(QDialogButtonBox.Ok).clicked.connect(self.accept_check)
+        self.buttonBox.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self.defaults)
+
+    def accept_check(self):
+        self.settings['recent'] = self.spinbox_downloads.value()
+        self.settings['save_dir'] = self.lineedit_path.text()
+        self.settings['close_confirmation'] = self.checkbox_close.isChecked()
+        self.settings['display_image'] = self.checkbox_image.isChecked()
+        self.accept()
+
+    def defaults(self):
+        defaults_settings_dict = dict(recent=5, save_dir=QDir.homePath(), close_confirmation=True,
+                                           display_image=True, list_recent=[])
+        self.settings['recent'] = defaults_settings_dict['recent']
+        self.settings['save_dir'] = defaults_settings_dict['save_dir']
+        self.settings['close_confirmation'] = defaults_settings_dict['close_confirmation']
+        self.settings['display_image'] = defaults_settings_dict['display_image']
+        self.settings['list_recent'] = defaults_settings_dict['list_recent']
+        self.set_values()
+
+
 
 class DownloadThread(QThread):
 
     new_progress = Signal(int, int)
+    success_on_terminate = Signal()
     page_init = Signal(unicode, unicode, unicode)
     error_terminate = Signal()
     override_confirmation = Signal()
@@ -102,6 +203,7 @@ class DownloadThread(QThread):
             self.get_series_initial_info()
         except (IOError, AttributeError):
             self.error_terminate.emit()
+            return
         while True:
             try:
                 # Initialize soup object
@@ -133,7 +235,9 @@ class DownloadThread(QThread):
                 #print ("Current Page: ", current_page.text)
 
             except (AttributeError, IOError):
+                print "DATA"
                 self.error_terminate.emit()
+                break
             else:
                 self.download_image()
                 if os.path.exists(os.path.join(unicode(QDir.homePath()),
@@ -159,12 +263,19 @@ class DownloadThread(QThread):
 
                 else:
                     if self.current_page.text == self.max_page.text:
-                        with zipfile.ZipFile(os.path.join(unicode(QDir.homePath()),
-                                                          '.'.join([self.series_title + self.chapter, 'cbz'])),
-                                             'w') as fzip:
-                            for image_file in os.listdir(self.temp_file):
-                                fzip.write(os.path.join(self.temp_file ,image_file), os.path.basename(image_file) )
-                        break
+                        try:
+                            with zipfile.ZipFile(os.path.join(unicode(QDir.homePath()),
+                                                              '.'.join([self.series_title + self.chapter, 'cbz'])),
+                                                 'w') as fzip:
+                                for image_file in os.listdir(self.temp_file):
+                                    fzip.write(os.path.join(self.temp_file ,image_file), os.path.basename(image_file) )
+                            self.success_on_terminate.emit()
+                            print "messadas"
+                            break
+                        except (IOError, OSError):
+                            self.error_terminate.emit()
+                        else:
+                            print "MESESES"
 
                 url_c = '='.join(['c', c_value])
                 url_i = '='.join(['i', i_value])
@@ -173,15 +284,16 @@ class DownloadThread(QThread):
                 link_page = 'http://mangachameleon.com/?' + '&'.join([url_c, url_i, url_cp])
                 #print link_page
 
-
     def download_image(self):
         # Download image
         image_extension = str(self.image).rsplit('.', 1)[1]
         current_page_formated = self.current_page.text
         while len(current_page_formated) < 3:
             current_page_formated = '0' + current_page_formated
+        print "up"
         image_file = urllib.urlretrieve(self.image, os.path.join(self.temp_file, '.'.join([str(current_page_formated),
                                                                                       str(image_extension)])))
+        print "down"
         self.new_progress.emit(int(self.current_page.text), int(self.max_page.text))
 
     def get_series_initial_info(self):
@@ -214,7 +326,7 @@ class DownloadThread(QThread):
         chapter_section = soup.find('form', attrs={'class': 'col-md-3 col-sm-4 col-xs-12'})
         current_chapter = (chapter_section.find('select')).find('option', attrs={'selected': 'selected'})
         print current_chapter.text
-        match = re.search(r'\b[0-9]+', current_chapter.text)
+        match = re.search(r'\b[0-9]+(.[0-9]+)?', current_chapter.text)
         self.chapter = match.group()
         print match.group()
 

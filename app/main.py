@@ -1,4 +1,3 @@
-import sys
 from PyQt4.QtGui import QApplication
 import download_manga
 
