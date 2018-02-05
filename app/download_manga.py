@@ -1,8 +1,8 @@
 import urllib
 from bs4 import BeautifulSoup
 import os
-from PyQt4.QtCore import (QThread, QDir, QMutex, QWaitCondition, QSettings, QVariant, QFile)
-from PyQt4.QtGui import (QMainWindow, QMessageBox, QImage, QPixmap, QKeySequence, QDialog, QDialogButtonBox)
+from PyQt4.QtCore import (QThread, QDir, QMutex, QWaitCondition, QSettings, QVariant, QStringList)
+from PyQt4.QtGui import (QMainWindow, QMessageBox, QImage, QPixmap, QKeySequence, QDialog, QDialogButtonBox, QAction)
 import datetime
 from Gui import MangaDownloader, Dialog_Settings
 from PyQt4.QtCore import pyqtSignal as Signal
@@ -40,19 +40,23 @@ class MainWindow(QMainWindow, MangaDownloader.Ui_MainWindow):
 
     def load_recent_files(self):
         self.menu_Recent.clear()
-        recent_files = []
-        if not self.edit_url.text().isEmpty():
-            print "me"
+        print "me"
+        for fname in self.settings_dict['list_recent']:
+            print "mes"
+            action = QAction(fname, self)
+            # action.triggere.connect()
+            self.menu_Recent.addAction(action)
 
     def add_new_recent_file(self):
         file_downloaded = ' '.join([unicode(self.series_title_label.text()), unicode(self.label_chapter.text())])
-
         if not self.settings_dict['list_recent'].contains(file_downloaded):
             print "dadasd2"
-            self.settings_dict['list_recent'].append(file_downloaded)
+            self.settings_dict['list_recent'].prepend(file_downloaded)
+            print self.settings_dict['list_recent']
         print type(self.settings_dict['list_recent'])
-        for data in self.settings_dict['list_recent']:
-            print data
+        print self.settings_dict['recent']
+        while self.settings_dict['list_recent'].count() > self.settings_dict['recent']:
+            self.settings_dict['list_recent'].takeLast()
 
 
     def startDownload(self):
